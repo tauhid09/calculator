@@ -1,3 +1,4 @@
+// CTCToInhand.jsx
 import React, { useState, useEffect } from 'react';
 import Chart from 'chart.js/auto';
 import { jsPDF } from 'jspdf';
@@ -35,13 +36,11 @@ const CTCToInhand = () => {
 
   const numberToWords = (num) => {
     const units = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
-
     if (num === 0) return 'Zero rupees';
     const crore = Math.floor(num / 10000000);
     num %= 10000000;
     const lakh = Math.floor(num / 100000);
     num %= 100000;
-
     let words = '';
     if (crore) words += units[crore] + ' crore ';
     if (lakh) words += units[lakh] + ' lakh ';
@@ -101,20 +100,23 @@ const CTCToInhand = () => {
       npsDeduction = Math.min(nps, basicAmount * 0.14);
     }
 
-    const ctcCommitments = basicAmount + hra + employerPf + gratuity + insuranceEmployer + otherEmployer;
+    // UPDATE: NPS added to commitments to calculate Special correctly
+    const ctcCommitments = basicAmount + hra + employerPf + gratuity + insuranceEmployer + otherEmployer + npsDeduction;
     const special = Math.max(0, ctc - ctcCommitments);
+    
+    // UPDATE: Gross Salary is now calculated after removing NPS from CTC
     const grossSalary = basicAmount + hra + special;
 
     const standardDeduction = 50000;
-    let taxableIncome = grossSalary; // initial
+    let taxableIncome = grossSalary; 
     let taxDetails = {};
 
     if (taxRegime === 'old') {
       const hraExemption = Math.min(hra, basicAmount * 0.50, grossSalary - (basicAmount + hra));
       const section80C = Math.min(employeePf, 150000);
-      const nps80CCD1B = Math.min(npsDeduction, 50000);
+      // Removed 80CCD1B logic as NPS is now treated as Employer contribution (CTC component)
 
-      taxableIncome = grossSalary - (standardDeduction + hraExemption + section80C + nps80CCD1B);
+      taxableIncome = grossSalary - (standardDeduction + hraExemption + section80C);
       taxableIncome = Math.max(0, taxableIncome);
       taxDetails = calculateTax(taxableIncome, 'old');
       if (taxableIncome <= 500000) taxDetails.finalTax = Math.max(0, taxDetails.finalTax - 12500);
@@ -127,7 +129,10 @@ const CTCToInhand = () => {
 
     const totalTax = taxDetails.finalTax;
     const profTax = includeProfTax ? 2500 : 0;
-    const totalDeductions = employeePf + npsDeduction + profTax + totalTax;
+    
+    // UPDATE: NPS removed from deductions list because it is already removed from Gross
+    const totalDeductions = employeePf + profTax + totalTax;
+    
     const netInHandYearly = grossSalary - totalDeductions;
     const netInHandMonthly = netInHandYearly / 12;
 
@@ -158,7 +163,7 @@ const CTCToInhand = () => {
   useEffect(() => {
     calculateSalary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctc, basic, inputMode, taxRegime, nps, includeProfTax]);
+  }, [ctc, basic, inputMode, taxRegime, nps, includeProfTax, insuranceAmount, otherDeductionsAmount]);
 
   useEffect(() => {
     if (results && chartRef.current) {
@@ -168,16 +173,16 @@ const CTCToInhand = () => {
       chartInstanceRef.current = new Chart(ctx, {
         type: 'pie',
         data: {
-          labels: ['Net In-Hand', 'Employee PF', 'NPS', 'Prof. Tax', 'Income Tax'],
+          // UPDATE: Removed NPS from visual deductions pie if it's 0 or part of CTC
+          labels: ['Net In-Hand', 'Employee PF', 'Prof. Tax', 'Income Tax'],
           datasets: [{
             data: [
               results.netInHandYearly,
               results.employeePf,
-              results.npsDeduction,
               results.profTax,
               results.totalTax
             ],
-            backgroundColor: ['#0d9488', '#f59e0b', '#8b5cf6', '#eab308', '#ef4444'],
+            backgroundColor: ['#0d9488', '#f59e0b', '#eab308', '#ef4444'],
             borderWidth: 0
           }]
         },
@@ -235,12 +240,14 @@ const CTCToInhand = () => {
       ['Special Allowance', results.special],
       ['Gross Salary', results.grossSalary],
       [],
-      ['Deductions (Annual)', 'Amount'],
+      ['Deductions (From Gross)', 'Amount'],
       ['Employee PF', results.employeePf],
-      ['NPS', results.npsDeduction],
       ['Professional Tax', results.profTax],
       ['Income Tax', results.totalTax],
-      ['Total Deductions', results.totalDeductions]
+      ['Total Deductions', results.totalDeductions],
+      [],
+      ['Allocations (From CTC)', 'Amount'],
+      ['NPS Contribution', results.npsDeduction]
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     XLSX.utils.book_append_sheet(wb, ws, 'Salary Breakdown');
@@ -437,18 +444,12 @@ const CTCToInhand = () => {
               </div>
 
               <div className="mt-4">
-                <h3 className="font-semibold mb-3 text-gray-800 dark:text-gray-100">Deductions (Annual)</h3>
+                <h3 className="font-semibold mb-3 text-gray-800 dark:text-gray-100">Deductions (From Gross)</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Employee EPF</span>
                     <span className="text-red-600 dark:text-red-400 font-medium">{formatCurrency(results.employeePf)}</span>
                   </div>
-                  {results.npsDeduction > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">Employee NPS</span>
-                      <span className="text-red-600 dark:text-red-400 font-medium">{formatCurrency(results.npsDeduction)}</span>
-                    </div>
-                  )}
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Professional Tax</span>
                     <span className="text-red-600 dark:text-red-400 font-medium">{formatCurrency(results.profTax)}</span>
@@ -481,6 +482,13 @@ const CTCToInhand = () => {
                   <span className="text-gray-600 dark:text-gray-400">Gratuity (4.81%)</span>
                   <span className="font-medium text-gray-900 dark:text-gray-100">{formatCurrency(results.gratuity)}</span>
                 </div>
+                 {/* Added NPS Display here since it's now a CTC Component */}
+                {results.npsDeduction > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600 dark:text-gray-400">NPS Contribution</span>
+                  <span className="font-medium text-gray-900 dark:text-gray-100">{formatCurrency(results.npsDeduction)}</span>
+                </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-gray-600 dark:text-gray-400">Insurance (Employer Fixed)</span>
                   <span className="font-medium text-gray-900 dark:text-gray-100">{formatCurrency(results.insuranceEmployer || 0)}</span>

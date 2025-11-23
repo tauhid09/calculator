@@ -1,3 +1,5 @@
+// salaryUtils.js
+
 const taxSlabs = {
   old: [
     { limit: 250000, rate: 0 },
@@ -57,6 +59,7 @@ export function computeSalaryFromCTC({ ctc = 1000000, basicPercent = 40, inputMo
   const insuranceEmployer = parseFloat(insurance) || 0;
   const otherEmployer = parseFloat(other) || 0;
 
+  // NPS Calculation (Max 14% of Basic)
   let npsDeduction = 0;
   if (inputMode === 'percentage') {
     npsDeduction = Math.min(basicAmount * (nps / 100), basicAmount * 0.14);
@@ -64,20 +67,25 @@ export function computeSalaryFromCTC({ ctc = 1000000, basicPercent = 40, inputMo
     npsDeduction = Math.min(nps, basicAmount * 0.14);
   }
 
-  const ctcCommitments = basicAmount + hra + employerPf + gratuity + insuranceEmployer + otherEmployer;
+  // CORRECTED: Added npsDeduction to ctcCommitments as per user formula
+  const ctcCommitments = basicAmount + hra + employerPf + gratuity + insuranceEmployer + otherEmployer + npsDeduction;
+  
   const special = Math.max(0, ctc - ctcCommitments);
   const grossSalary = basicAmount + hra + special;
 
   const standardDeduction = 50000;
-  let taxableIncome = grossSalary; // initial
+  let taxableIncome = grossSalary; 
   let taxDetails = {};
 
   if (taxRegime === 'old') {
     const hraExemption = Math.min(hra, basicAmount * 0.50, grossSalary - (basicAmount + hra));
     const section80C = includeEmployeePF ? Math.min(employeePf, 150000) : 0;
-    const nps80CCD1B = Math.min(npsDeduction, 50000);
-
-    taxableIncome = grossSalary - (standardDeduction + hraExemption + section80C + nps80CCD1B);
+    
+    // Note: Since NPS is now removed from CTC (Employer Contribution), it is generally fully exempt 
+    // and not claimed under 80CCD(1B) which is for employee contribution. 
+    // Keeping logic simple based on requested formula.
+    
+    taxableIncome = grossSalary - (standardDeduction + hraExemption + section80C);
     taxableIncome = Math.max(0, taxableIncome);
     taxDetails = calculateTax(taxableIncome, 'old');
     if (taxableIncome <= 500000) taxDetails.finalTax = Math.max(0, taxDetails.finalTax - 12500);
@@ -90,7 +98,10 @@ export function computeSalaryFromCTC({ ctc = 1000000, basicPercent = 40, inputMo
 
   const totalTax = taxDetails.finalTax;
   const profTax = includeProfTax ? 2500 : 0;
-  const totalDeductions = (includeEmployeePF ? employeePf : 0) + npsDeduction + profTax + totalTax;
+
+  // CORRECTED: Removed npsDeduction from totalDeductions because it was already subtracted from CTC to form Gross
+  const totalDeductions = (includeEmployeePF ? employeePf : 0) + profTax + totalTax;
+  
   const netInHandYearly = grossSalary - totalDeductions;
   const netInHandMonthly = netInHandYearly / 12;
 
@@ -119,7 +130,6 @@ export function computeSalaryFromCTC({ ctc = 1000000, basicPercent = 40, inputMo
 }
 
 export function estimateCTCForInhand(targetMonthlyInhand, opts = {}) {
-  // Use binary search to find CTC that yields target monthly inhand
   let low = 10000;
   let high = 20000000;
   let best = null;
